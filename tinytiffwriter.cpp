@@ -18,6 +18,10 @@
 
 
 */
+/*
+   Further modifications by John Robinson starting December 2019  Thos changes are also
+   covered by the GNU General Public License.
+*/
 
 
 //#define TINYTIFF_WRITE_COMMENTS
@@ -122,6 +126,7 @@ struct TinyTIFFFile {
     uint64_t frames;
     /* \brief specifies the byte order of the system (and the written file!) */
     uint8_t byteorder;
+    uint32_t samplesPerPixel;
 };
 
 /*! \brief wrapper around fopen
@@ -646,7 +651,7 @@ inline void TinyTIFFWriter_writeIFDEntryRATIONAL(TinyTIFFFile* tiff, uint16_t ta
 
 
 
-TinyTIFFFile* TinyTIFFWriter_open(const char* filename, uint16_t bitsPerSample, uint32_t width, uint32_t height) {
+TinyTIFFFile* TinyTIFFWriter_open(const char* filename, uint32_t samples, uint16_t bitsPerSample, uint32_t width, uint32_t height) {
     TinyTIFFFile* tiff=(TinyTIFFFile*)malloc(sizeof(TinyTIFFFile));
 
     //tiff->file=fopen(filename, "wb");
@@ -654,6 +659,7 @@ TinyTIFFFile* TinyTIFFWriter_open(const char* filename, uint16_t bitsPerSample, 
     tiff->width=width;
     tiff->height=height;
     tiff->bitspersample=bitsPerSample;
+    tiff->samplesPerPixel = samples;
     tiff->lastHeader=NULL;
     tiff->lastHeaderSize=0;
     tiff->byteorder=TIFF_get_byteorder();
@@ -767,20 +773,20 @@ void TinyTIFFWriter_writeImage(TinyTIFFFile* tiff, void* data) {
     TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_IMAGELENGTH, tiff->height);
     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_BITSPERSAMPLE, tiff->bitspersample);
     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_COMPRESSION, 1);
-    TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_PHOTOMETRICINTERPRETATION, 1);
+    TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_PHOTOMETRICINTERPRETATION, tiff->samplesPerPixel==1? 1 : 2);
 #ifdef TINYTIFF_WRITE_COMMENTS
     TINTIFFWRITER_WRITEImageDescriptionTemplate(tiff);
 #endif // TINYTIFF_WRITE_COMMENTS
     TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_STRIPOFFSETS, pos+2+hsize);
-    TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_SAMPLESPERPIXEL, 1);
+    TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_SAMPLESPERPIXEL, tiff->samplesPerPixel);
     TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_ROWSPERSTRIP, tiff->height);
-    TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_STRIPBYTECOUNTS, tiff->width*tiff->height*(tiff->bitspersample/8));
+    TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_STRIPBYTECOUNTS, tiff->width*tiff->height*(tiff->bitspersample/8)*tiff->samplesPerPixel);
     TinyTIFFWriter_writeIFDEntryRATIONAL(tiff, TIFF_FIELD_XRESOLUTION, 1,1);
     TinyTIFFWriter_writeIFDEntryRATIONAL(tiff, TIFF_FIELD_YRESOLUTION, 1,1);
     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_PLANARCONFIG, 1);
     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_RESOLUTIONUNIT, 1);
     TinyTIFFWriter_endIFD(tiff);
-    TinyTIFFWriter_fwrite(data, tiff->width*tiff->height*(tiff->bitspersample/8), 1, tiff);
+    TinyTIFFWriter_fwrite(data, tiff->width*tiff->height*tiff->samplesPerPixel*(tiff->bitspersample/8), 1, tiff);
     tiff->frames=tiff->frames+1;
 }
 
@@ -801,21 +807,21 @@ void TinyTIFFWriter_writeImage(TinyTIFFFile* tiff, float* data) {
      TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_IMAGELENGTH, tiff->height);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_BITSPERSAMPLE, tiff->bitspersample);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_COMPRESSION, 1);
-     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_PHOTOMETRICINTERPRETATION, 1);
+     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_PHOTOMETRICINTERPRETATION, tiff->samplesPerPixel==1? 1 : 2);
 #ifdef TINYTIFF_WRITE_COMMENTS
     TINTIFFWRITER_WRITEImageDescriptionTemplate(tiff);
 #endif // TINYTIFF_WRITE_COMMENTS
      TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_STRIPOFFSETS, pos+2+hsize);
-     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_SAMPLESPERPIXEL, 1);
+     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_SAMPLESPERPIXEL, tiff->samplesPerPixel);
      TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_ROWSPERSTRIP, tiff->height);
-     TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_STRIPBYTECOUNTS, tiff->width*tiff->height*(tiff->bitspersample/8));
+     TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_STRIPBYTECOUNTS, tiff->width*tiff->height*(tiff->bitspersample/8)*tiff->samplesPerPixel);
      TinyTIFFWriter_writeIFDEntryRATIONAL(tiff, TIFF_FIELD_XRESOLUTION, 1,1);
      TinyTIFFWriter_writeIFDEntryRATIONAL(tiff, TIFF_FIELD_YRESOLUTION, 1,1);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_PLANARCONFIG, 1);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_RESOLUTIONUNIT, 1);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_SAMPLEFORMAT, 3);
      TinyTIFFWriter_endIFD(tiff);
-     TinyTIFFWriter_fwrite(data, tiff->width*tiff->height*(tiff->bitspersample/8), 1, tiff);
+     TinyTIFFWriter_fwrite(data, tiff->width*tiff->height*tiff->samplesPerPixel*(tiff->bitspersample/8), 1, tiff);
      tiff->frames=tiff->frames+1;
 }
 
@@ -840,20 +846,20 @@ void TinyTIFFWriter_writeImage(TinyTIFFFile* tiff, double* data) {
      TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_IMAGELENGTH, tiff->height);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_BITSPERSAMPLE, tiff->bitspersample);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_COMPRESSION, 1);
-     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_PHOTOMETRICINTERPRETATION, 1);
+     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_PHOTOMETRICINTERPRETATION, tiff->samplesPerPixel==1? 1 : 2);
 #ifdef TINYTIFF_WRITE_COMMENTS
     TINTIFFWRITER_WRITEImageDescriptionTemplate(tiff);
 #endif // TINYTIFF_WRITE_COMMENTS
      TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_STRIPOFFSETS, pos+2+hsize);
-     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_SAMPLESPERPIXEL, 1);
+     TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_SAMPLESPERPIXEL, tiff->samplesPerPixel);
      TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_ROWSPERSTRIP, tiff->height);
-     TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_STRIPBYTECOUNTS, tiff->width*tiff->height*(tiff->bitspersample/8));
+     TinyTIFFWriter_writeIFDEntryLONG(tiff, TIFF_FIELD_STRIPBYTECOUNTS,  tiff->width*tiff->height*(tiff->bitspersample/8)*tiff->samplesPerPixel);
      TinyTIFFWriter_writeIFDEntryRATIONAL(tiff, TIFF_FIELD_XRESOLUTION, 1,1);
      TinyTIFFWriter_writeIFDEntryRATIONAL(tiff, TIFF_FIELD_YRESOLUTION, 1,1);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_PLANARCONFIG, 1);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_RESOLUTIONUNIT, 1);
      TinyTIFFWriter_writeIFDEntrySHORT(tiff, TIFF_FIELD_SAMPLEFORMAT, 3);
      TinyTIFFWriter_endIFD(tiff);
-     TinyTIFFWriter_fwrite(data, tiff->width*tiff->height*(tiff->bitspersample/8), 1, tiff);
+     TinyTIFFWriter_fwrite(data, tiff->width*tiff->height*tiff->samplesPerPixel*(tiff->bitspersample/8), 1, tiff);
      tiff->frames=tiff->frames+1;
 }

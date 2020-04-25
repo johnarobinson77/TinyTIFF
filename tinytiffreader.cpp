@@ -15,11 +15,19 @@
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-
+*/
+/*
+    Further modifications by John Robinson starting December 2019  Those changes are also
+    covered by the GNU General Public License.
  */
 
- #include "tinytiffreader.h"
+#include "tinytiffreader.h"
+#include <iostream>
+#include <sstream>
+#include <vector>
+#include <map>
+
+using namespace std;
 
 //#define DEBUG_IFDTIMING
 #ifdef DEBUG_IFDTIMING
@@ -88,12 +96,18 @@
 #define TIFF_FIELD_PLANARCONFIG 284
 #define TIFF_FIELD_RESOLUTIONUNIT 296
 #define TIFF_FIELD_SAMPLEFORMAT 339
+#define TIFF_FIELD_FOCALLENGTH 0x920A
+#define TIFF_FIELD_XMP 700
+#define TIFF_FIELD_EXIF 34665
 
 #define TIFF_TYPE_BYTE 1
 #define TIFF_TYPE_ASCII 2
 #define TIFF_TYPE_SHORT 3
 #define TIFF_TYPE_LONG 4
 #define TIFF_TYPE_RATIONAL 5
+#define TIFF_TYPE_UNDEFINED 7
+#define TIFF_TYPE_SLONG 9
+#define TIFF_TYPE_SRATIONAL 10
 
 #define TIFF_COMPRESSION_NONE 1
 #define TIFF_COMPRESSION_CCITT 2
@@ -107,6 +121,19 @@
 
 #define TIFF_HEADER_SIZE 510
 #define TIFF_HEADER_MAX_ENTRIES 16
+
+vector<string>* split (const string &s, char delim) {
+    vector<string> *result = new vector<string>;
+    stringstream ss (s);
+    string item;
+
+    while (getline (ss, item, delim)) {
+        result->push_back (item);
+    }
+
+    return result;
+}
+
 
 
 int TIFFReader_get_byteorder() {
@@ -124,6 +151,9 @@ int TIFFReader_get_byteorder() {
     return TIFF_ORDER_UNKNOWN;
 }
 
+struct TinyTIFFReader_EXIF_IFD;
+struct TinyTIFFReader_IFD;
+
 struct TinyTIFFReaderFrame {
     uint32_t width;
     uint32_t height;
@@ -140,10 +170,12 @@ struct TinyTIFFReaderFrame {
     uint32_t imagelength;
 	
 	char* description;
+    vector<string> *xmp;
+    map<uint16_t, TinyTIFFReader_EXIF_IFD*> *EXIFdict;
 };
 
 inline TinyTIFFReaderFrame TinyTIFFReader_getEmptyFrame() {
-    TinyTIFFReaderFrame d;
+    static TinyTIFFReaderFrame d;
     d.width=0;
     d.height=0;
     d.stripcount=0;
@@ -157,6 +189,8 @@ inline TinyTIFFReaderFrame TinyTIFFReader_getEmptyFrame() {
     d.sampleformat=TINYTIFFREADER_SAMPLEFORMAT_UINT;
     d.imagelength=0;
 	d.description=0;
+    d.xmp = NULL;
+    d.EXIFdict = new map<uint16_t, TinyTIFFReader_EXIF_IFD*>;
     return d;
 }
 
@@ -167,8 +201,20 @@ inline void TinyTIFFReader_freeEmptyFrame(TinyTIFFReaderFrame f) {
     f.stripbytecounts=NULL;
     if (f.bitspersample) free(f.bitspersample);
     f.bitspersample=NULL;
-	if (f.description) free(f.description);
-	f.description=NULL;
+    if (f.description) free(f.description);
+    f.description=NULL;
+    if (f.xmp != NULL){
+        for(int i = 0; i < f.xmp->size(); i++) (*f.xmp)[i].clear();
+        free (f.xmp);
+        f.xmp = NULL;
+    }
+    if (f.EXIFdict != NULL) {
+        map<uint16_t, TinyTIFFReader_EXIF_IFD*>::iterator cursor;
+        for(cursor = f.EXIFdict->begin(); cursor!=f.EXIFdict->end(); cursor++){
+            free(cursor->second);
+        }
+    }
+    free(f.EXIFdict);
 }
 
 
@@ -367,6 +413,208 @@ inline uint8_t TinyTIFFReader_readuint8(TinyTIFFReaderFile* tiff) {
     return res;
 }
 
+// structure and code for reading the EXIF tags  Code added by John Robinson
+struct TinyTIFFReader_EXIF_IFD {
+    uint16_t type;
+    uint32_t count;
+    void* pvalue;
+    
+    TinyTIFFReader_EXIF_IFD(){}
+
+    TinyTIFFReader_EXIF_IFD (TinyTIFFReaderFile* tiff, TinyTIFFReader_IFD* d){
+        uint16_t tag = TinyTIFFReader_readuint16(tiff);
+        type=TinyTIFFReader_readuint16(tiff);
+        count=TinyTIFFReader_readuint32(tiff);
+        TinyTIFFReader_POSTYPE pos;
+        TinyTIFFReader_fgetpos(tiff, &pos);
+        bool changedpos = FALSE;
+        switch(type) {
+            case TIFF_TYPE_BYTE:
+            case TIFF_TYPE_ASCII:
+                if (count>0) {
+                    pvalue = (void*) new string();
+                    if (count<=4) {
+                        for (int i=0; i<4; i++) {
+                            char v = TinyTIFFReader_readuint8(tiff);
+                            if (i < count) *(((string*)pvalue)) += v;
+                        }
+                    } else {
+                        changedpos=TRUE;
+                        uint32_t offset=TinyTIFFReader_readuint32(tiff);
+                        if (offset+count*1<=tiff->filesize) {
+                            TinyTIFFReader_fseek_set(tiff, offset);
+                            for (int i = 0; i < count; i++) {
+                                *(((string*)pvalue)) += TinyTIFFReader_readuint8(tiff);
+                            }
+                         }
+                    }
+                }
+            //printf ("EXIF: tag = %d, type = %d, count = %d, value = %s\n", tag, type, count, ((string*)pvalue)->c_str());
+            break;
+        case TIFF_TYPE_SHORT:
+                pvalue=(void*)calloc(count, sizeof(uint16_t));
+                if (count<=2) {
+                    for (int i=0; i<2; i++) {
+                        uint16_t v=TinyTIFFReader_readuint16(tiff);
+                        if (i<count)  *(((uint16_t*)pvalue)+i) = v;
+                    }
+                } else {
+                    changedpos=TRUE;
+                    uint32_t offset=TinyTIFFReader_readuint32(tiff);
+                    if (offset+count*2<tiff->filesize) {
+                        //fseek(tiff->file, offset, SEEK_SET);
+                        TinyTIFFReader_fseek_set(tiff, offset);
+                        for (int i=0; i<count; i++) {
+                            *(((uint16_t*)pvalue)+i) = TinyTIFFReader_readuint16(tiff);
+                        }
+                    }
+                }
+            //printf ("EXIF: tag = %d, type = %d, count = %d, value = %d\n", tag, type, count, *(uint16_t*)pvalue);
+            break;
+        case TIFF_TYPE_LONG:
+        case TIFF_TYPE_UNDEFINED:
+            pvalue=(void*)calloc(count, sizeof(uint32_t));
+            if (count<=1) {
+                *(((uint32_t*)pvalue)) = TinyTIFFReader_readuint32(tiff);
+            } else {
+                changedpos=TRUE;
+                uint32_t offset=TinyTIFFReader_readuint32(tiff);
+                if (offset+count*4<tiff->filesize) {
+                    //fseek(tiff->file, offset, SEEK_SET);
+                    TinyTIFFReader_fseek_set(tiff, offset);
+                    for (int i=0; i<count; i++) {
+                        *(((uint32_t*)pvalue)+i) = TinyTIFFReader_readuint32(tiff);
+                    }
+                }
+            }
+            //printf ("EXIF: tag = %d, type = %d, count = %d, value = %d\n", tag, type, count, *(uint32_t*)pvalue);
+            break;
+
+        case TIFF_TYPE_RATIONAL: {
+                pvalue=(void*)calloc(count, sizeof(double));
+
+                changedpos=TRUE;
+                uint32_t offset=TinyTIFFReader_readuint32(tiff);
+                if (offset+count*4<tiff->filesize) {
+                    //fseek(tiff->file, offset, SEEK_SET);
+                    TinyTIFFReader_fseek_set(tiff, offset);
+                    for (int i=0; i<count; i++) {
+                        *(((double*)pvalue)+i) =  TinyTIFFReader_readuint32(tiff);
+                        *(((double*)pvalue)+i) /= TinyTIFFReader_readuint32(tiff);
+                    }
+                }
+            //printf ("EXIF: tag = %d, type = %d, count = %d, value = %f\n", tag, type, count, *(double*)pvalue);
+            }
+            break;
+            
+        case TIFF_TYPE_SLONG:
+            pvalue=(void*)calloc(count, sizeof(int32_t));
+            if (count<=1) {
+                *(((uint32_t*)pvalue)) = (int32_t)TinyTIFFReader_readuint32(tiff);
+            } else {
+                changedpos=TRUE;
+                uint32_t offset=TinyTIFFReader_readuint32(tiff);
+                if (offset+count*4<tiff->filesize) {
+                    //fseek(tiff->file, offset, SEEK_SET);
+                    TinyTIFFReader_fseek_set(tiff, offset);
+                    for (int i=0; i<count; i++) {
+                        *(((uint32_t*)pvalue)+i) = (int32_t)TinyTIFFReader_readuint32(tiff);
+                    }
+                }
+            }
+            //printf ("EXIF: tag = %d, type = %d, count = %d, value = %d\n", tag, type, count, *(int32_t*)pvalue);
+            break;
+
+        case TIFF_TYPE_SRATIONAL: {
+                pvalue=(void*)calloc(count, sizeof(double));
+
+                changedpos=TRUE;
+                uint32_t offset=TinyTIFFReader_readuint32(tiff);
+                if (offset+count*4<tiff->filesize) {
+                    //fseek(tiff->file, offset, SEEK_SET);
+                    TinyTIFFReader_fseek_set(tiff, offset);
+                    for (int i=0; i<count; i++) {
+                        *(((double*)pvalue)+i) =  (int32_t)TinyTIFFReader_readuint32(tiff);
+                        *(((double*)pvalue)+i) /= (int32_t)TinyTIFFReader_readuint32(tiff);
+                    }
+                }
+            //printf ("EXIF: tag = %d, type = %d, count = %d, value = %f\n", tag, type, count, *(double*)pvalue);
+            }
+            break;
+            
+        default:
+            printf ("Unknown EXIF type: tag = %d, type = %d, count = %d\n", tag, type, count);
+
+        }
+        
+        (*tiff->currentFrame.EXIFdict)[tag] = this;
+        if (changedpos) {
+            TinyTIFFReader_fseek_set(tiff, pos);
+            TinyTIFFReader_fseek_cur(tiff, 4);
+        }
+    }
+
+    ~TinyTIFFReader_EXIF_IFD(){
+        if (pvalue) free(pvalue);
+    }
+};
+
+// this function is used to access string data from the data stored in the
+// TinyTIFFReader_EXIF_IFD struct
+bool TinyTIFFReaderEXIF(string &retval, TinyTIFFReaderFile *tiff, uint16_t tag) {
+    TinyTIFFReader_EXIF_IFD* ifd = (*tiff->currentFrame.EXIFdict)[tag];
+    if (ifd == NULL) return false;
+    if (ifd->type != TIFF_TYPE_BYTE || ifd->type != TIFF_TYPE_ASCII) {
+        cout << "EXIF tag is not type string" << endl;
+        return false;
+    }
+    retval = *(string*)ifd->pvalue;
+    return true;
+}
+// this function is used to access unsigned int data of any size from the data stored in the
+// TinyTIFFReader_EXIF_IFD struct
+bool TinyTIFFReaderEXIF(uint32_t &retval, TinyTIFFReaderFile *tiff, uint16_t tag) {
+    TinyTIFFReader_EXIF_IFD *ifd = (*tiff->currentFrame.EXIFdict)[tag];
+    if (ifd == NULL) return false;
+    if (ifd->type == TIFF_TYPE_SHORT) {
+        retval = *(uint16_t*)ifd->pvalue;
+    } else if (ifd->type == TIFF_TYPE_LONG || ifd->type == TIFF_TYPE_UNDEFINED) {
+        return *(uint32_t*)ifd->pvalue;
+    } else {
+        cout << "EXIF tag is not type SHORT, LONG or UNDEFINED" << endl;
+        return false;
+    }
+    return true;
+}
+// this function is used to access signed int data from the data stored in the
+// TinyTIFFReader_EXIF_IFD struct
+bool TinyTIFFReaderEXIF(int32_t &retval, TinyTIFFReaderFile *tiff, uint16_t tag) {
+    TinyTIFFReader_EXIF_IFD *ifd = (*tiff->currentFrame.EXIFdict)[tag];
+    if (ifd == NULL) return false;
+    if (ifd->type == TIFF_TYPE_SLONG) {
+        return *(int32_t*)ifd->pvalue;
+    } else {
+        cout << "EXIF tag is not type SLONG" << endl;
+        return false;
+    }
+    return true;
+}
+// this function is used to access signed or unsigned rational from the data stored in the
+// TinyTIFFReader_EXIF_IFD struct.  The devide is preformed before hand.
+bool TinyTIFFReaderEXIF(double &retval, TinyTIFFReaderFile *tiff, uint16_t tag) {
+    TinyTIFFReader_EXIF_IFD *ifd = (*tiff->currentFrame.EXIFdict)[tag];
+    if (ifd == NULL) {
+        return false;
+    }
+    if (ifd->type == TIFF_TYPE_RATIONAL || ifd->type == TIFF_TYPE_SRATIONAL) {
+        return retval = *(double*)ifd->pvalue;
+    } else {
+        cout << "EXIF tag is not type RATIONAL or SRATIONAL" << endl;
+        return false;
+    }
+    return true;
+}
+
 
 struct TinyTIFFReader_IFD {
     uint16_t tag;
@@ -483,7 +731,7 @@ inline TinyTIFFReader_IFD TinyTIFFReader_readIFD(TinyTIFFReaderFile* tiff) {
             uint32_t offset=TinyTIFFReader_readuint32(tiff);
             if (offset+d.count*4<tiff->filesize) {
                 //fseek(tiff->file, offset, SEEK_SET);
-                TinyTIFFReader_fseek_set(tiff, offset);
+                //TinyTIFFReader_fseek_set(tiff, offset);
                 uint32_t i;
                 for (i=0; i<d.count; i++) {
                     d.pvalue[i]=TinyTIFFReader_readuint32(tiff);
@@ -549,19 +797,19 @@ inline void TinyTIFFReader_readNextFrame(TinyTIFFReaderFile* tiff) {
                 case TIFF_FIELD_ROWSPERSTRIP: tiff->currentFrame.rowsperstrip=ifd.value; break;
                 case TIFF_FIELD_SAMPLEFORMAT: tiff->currentFrame.sampleformat=ifd.value; break;
                 case TIFF_FIELD_IMAGEDESCRIPTION: {
-						//printf("TIFF_FIELD_IMAGEDESCRIPTION: (tag: %u, type: %u, count: %u)\n", ifd.tag, ifd.type, ifd.count);
-				        if (ifd.count>0) {
-				            if (tiff->currentFrame.description) free(tiff->currentFrame.description);
-							tiff->currentFrame.description=(char*)calloc(ifd.count+1, sizeof(char));
+                        //printf("TIFF_FIELD_IMAGEDESCRIPTION: (tag: %u, type: %u, count: %u)\n", ifd.tag, ifd.type, ifd.count);
+                        if (ifd.count>0) {
+                            if (tiff->currentFrame.description) free(tiff->currentFrame.description);
+                            tiff->currentFrame.description=(char*)calloc(ifd.count+1, sizeof(char));
                             for (uint32_t ji=0; ji<ifd.count+1; ji++) {
                                 tiff->currentFrame.description[ji]='\0';
                             }
-							for (uint32_t ji=0; ji<ifd.count; ji++) {
-							    tiff->currentFrame.description[ji]=(char)ifd.pvalue[ji];
-								//printf(" %d[%d]", int(tiff->currentFrame.description[ji]), int(ifd.pvalue[ji]));
-							}
-							//printf("\n  %s\n", tiff->currentFrame.description);
-					    }
+                            for (uint32_t ji=0; ji<ifd.count; ji++) {
+                                tiff->currentFrame.description[ji]=(char)ifd.pvalue[ji];
+                                //printf(" %d[%d]", int(tiff->currentFrame.description[ji]), int(ifd.pvalue[ji]));
+                            }
+                            //printf("\n  %s\n", tiff->currentFrame.description);
+                        }
                     } break;
                 case TIFF_FIELD_STRIPBYTECOUNTS: {
                         tiff->currentFrame.stripcount=ifd.count;
@@ -569,6 +817,25 @@ inline void TinyTIFFReader_readNextFrame(TinyTIFFReaderFile* tiff) {
                         memcpy(tiff->currentFrame.stripbytecounts, ifd.pvalue, ifd.count*sizeof(uint32_t));
                     } break;
                 case TIFF_FIELD_PLANARCONFIG: tiff->currentFrame.planarconfiguration=ifd.value; break;
+                case TIFF_FIELD_XMP:{
+                        // Adobe sometimes uses EXIF_TYPE_UNDEFINED instead of _ASCI.  Removing this for now
+                        //printf("    - readIFD %d (tag: %u, type: %u, count: %u)\n", i, ifd.tag, ifd.type, ifd.count);
+//                        string tmps;
+//                        for (int i = 0; i < ifd.count; i++) tmps += (char)ifd.pvalue[i];
+//                        tiff->currentFrame.xmp= split(tmps, '\n');
+                        //for (int i = 0; i < (*tiff->currentFrame.xmp).size(); i++) cout << (*tiff->currentFrame.xmp)[i] << endl;
+                    } break;
+                case TIFF_FIELD_EXIF: {
+                    TinyTIFFReader_POSTYPE pos;
+                    TinyTIFFReader_fgetpos(tiff, &pos);
+                    TinyTIFFReader_fseek_set(tiff, ifd.value);
+                    unsigned cnt = TinyTIFFReader_readuint16(tiff);
+                    for(int i = 0;  i < cnt; i++) {
+                        new TinyTIFFReader_EXIF_IFD(tiff, &ifd);
+                    }
+                    //cout << endl;
+                    TinyTIFFReader_fseek_set(tiff, pos);
+                } break;
                 default: break;
             }
             TinyTIFFReader_freeIFD(ifd);
@@ -594,11 +861,12 @@ int TinyTIFFReader_getSampleData(TinyTIFFReaderFile* tiff, void* buffer, uint16_
             strcpy(tiff->lastError, "the compression of the file is not supported by this library\0");
             return FALSE;
         }
-        if (tiff->currentFrame.samplesperpixel>1 && tiff->currentFrame.planarconfiguration!=TIFF_PLANARCONFIG_PLANAR) {
+        // this error check removed to allow RGB by John Robinson data types
+       /* if (tiff->currentFrame.samplesperpixel>1 && tiff->currentFrame.planarconfiguration!=TIFF_PLANARCONFIG_PLANAR) {
             tiff->wasError=TRUE;
             strcpy(tiff->lastError, "only planar TIFF files are supported by this library\0");
             return FALSE;
-        }
+        } */
         if (tiff->currentFrame.width==0 || tiff->currentFrame.height==0 ) {
             tiff->wasError=TRUE;
             strcpy(tiff->lastError, "the current frame does not contain images\0");
@@ -626,7 +894,8 @@ int TinyTIFFReader_getSampleData(TinyTIFFReaderFile* tiff, void* buffer, uint16_
                     TinyTIFFReader_fseek_set(tiff, tiff->currentFrame.stripoffsets[s]);
                     //fread(tmp, tiff->currentFrame.stripbytecounts[s], 1, tiff->file);
                     TinyTIFFReader_fread(tmp, tiff->currentFrame.stripbytecounts[s], 1, tiff);
-                    uint32_t offset=s*tiff->currentFrame.rowsperstrip*tiff->currentFrame.width;
+                    uint32_t offset=s*tiff->currentFrame.rowsperstrip*tiff->currentFrame.width *
+                        tiff->currentFrame.samplesperpixel;
                     //printf("          bufferoffset=%u\n", offset);
                     memcpy(&(((uint8_t*)buffer)[offset]), tmp, tiff->currentFrame.stripbytecounts[s]);
                     free(tmp);
@@ -817,7 +1086,6 @@ uint16_t TinyTIFFReader_getSamplesPerPixel(TinyTIFFReaderFile* tiff) {
     }
     return 0;
 }
-
 
 uint32_t TinyTIFFReader_countFrames(TinyTIFFReaderFile* tiff) {
 

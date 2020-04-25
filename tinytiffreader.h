@@ -18,7 +18,10 @@
 
 
 */
-
+/*
+   Further modifications by John Robinson starting December 2019  Thos changes are also
+   covered by the GNU General Public License.
+*/
 
 #ifndef TINYTIFFREADER_H
 #define TINYTIFFREADER_H
@@ -32,6 +35,8 @@
 #include <string.h>
 #include <inttypes.h>
 #include <string>
+
+using namespace std;
 
 /*! \defgroup tinytiffreader Tiny TIFF reader library
    \ingroup tools
@@ -238,14 +243,22 @@ TINYTIFFREADER_LIB_EXPORT uint16_t TinyTIFFReader_getSamplesPerPixel(TinyTIFFRea
     \ingroup TinyTIFFReader
 
     \param tiff TIFF file 
-    \param buffer the buffer this function writes into
-    \param sample the sample to read [default: 0]
     \return \c TRUE (non-zero) on success
 
     \note The user is responsible for providing the correct buffer size
           (taking width, height and bitsPerSample into account).
 
  */
+TINYTIFFREADER_LIB_EXPORT double TinyTIFFReader_getFocalLength(TinyTIFFReaderFile* tiff);
+/*! \brief return the loval length of the image
+ 
+    \ingroup TinyTIFFReader
+
+    \param tiff TIFF file
+    \return \c non-zero on success
+*/
+
+
 TINYTIFFREADER_LIB_EXPORT int TinyTIFFReader_getSampleData(TinyTIFFReaderFile* tiff, void* buffer, uint16_t sample);
 
 
@@ -257,12 +270,6 @@ TINYTIFFREADER_LIB_EXPORT int TinyTIFFReader_getSampleData(TinyTIFFReaderFile* t
 
  */
 TINYTIFFREADER_LIB_EXPORT uint32_t TinyTIFFReader_countFrames(TinyTIFFReaderFile* tiff);
-
-
-
-
-
-
 
 /*! \brief template function that internally calls TinyTIFFReader_getSampleData() and copies the data into the specified output buffer
     \ingroup TinyTIFFReader
@@ -331,5 +338,119 @@ inline void TinyTIFFReader_readFrame(TinyTIFFReaderFile* tif, Tout* buffer) {
     }
     free(tmp);
 }
+
+
+#define EXIF_ExifVersion 36864 //UNDEFINED
+#define EXIF_FlashpixVersion 40960 //UNDEFINED
+#define EXIF_ColorSpace 40961 //SHORT
+#define EXIF_Gamma 42240 //RATIONAL
+#define EXIF_ComponentsConfiguration 37121 //UNDEFINED
+#define EXIF_CompressedBitsPerPixel 37122 //RATIONAL
+#define EXIF_PixelXDimension 40962 //SHORT or LONG
+#define EXIF_PixelYDimension 40963 //SHORT or LONG
+#define EXIF_MakerNote 37500 //UNDEFINED
+#define EXIF_UserComment 37510 //UNDEFINED
+#define EXIF_RelatedSoundFile 40964 //ASCII
+#define EXIF_DateTimeOriginal 36867 //ASCII
+#define EXIF_DateTimeDigitized 36868 //ASCII
+#define EXIF_SubSecTime 37520 //ASCII
+#define EXIF_SubSecTimeOriginal 37521 //ASCII
+#define EXIF_SubSecTimeDigitized 37522 //ASCII
+#define EXIF_ImageUniqueID 42016 //ASCII
+#define EXIF_CameraOwnerName 42032 //ASCII
+#define EXIF_BodySerialNumber 42033 //ASCII
+#define EXIF_LensSpecification 42034 //RATIONAL
+#define EXIF_LensMake 42035 //ASCII
+#define EXIF_LensModel 42036 //ASCII
+#define EXIF_LensSerialNumber 42037 //ASCII
+//********************************
+#define EXIF_ExposureTime 33434 //829A RATIONAL
+#define EXIF_FNumber 33437 //829D RATIONAL
+#define EXIF_ExposureProgram 34850 //8822 SHORT
+#define EXIF_SpectralSensitivity 34852 //8824 ASCII
+#define EXIF_PhotographicSensitivity 34855 //8827 SHORT
+#define EXIF_OECF 34856 //8828 UNDEFINED
+#define EXIF_SensitivityType 34864 //8830 SHORT
+#define EXIF_StandardOutputSensitivity 34865 //8831 LONG
+#define EXIF_RecommendedExposureIndex 34866 //8832 LONG
+#define EXIF_ISOSpeed 34867 //8833 LONG
+#define EXIF_ISOSpeedLatitudeyyy 34868 //8834 LONG
+#define EXIF_ISOSpeedLatitudezzz 34869 //8835 LONG
+#define EXIF_ShutterSpeedValue 37377 //9201 SRATIONAL
+#define EXIF_ApertureValue 37378 //9202 RATIONAL
+#define EXIF_BrightnessValue 37379 //9203 SRATIONAL
+#define EXIF_ExposureBiasValue 37380 //9204 SRATIONAL
+#define EXIF_MaxApertureValue 37381 //9205 RATIONAL
+#define EXIF_SubjectDistance 37382 //9206 RATIONAL
+#define EXIF_MeteringMode 37383 //9207 SHORT
+#define EXIF_LightSource 37384 //9208 SHORT
+#define EXIF_Flash 37385 //9209 SHORT
+#define EXIF_FocalLength 37386 //920A RATIONAL
+#define EXIF_SubjectArea 37396 //9214 SHORT
+#define EXIF_FlashEnergy 41483 //A20B RATIONAL
+#define EXIF_SpatialFrequencyResponse 41484 //A20C UNDEFINED
+#define EXIF_FocalPlaneXResolution 41486 //A20E RATIONAL
+#define EXIF_FocalPlaneYResolution 41487 //A20F RATIONAL
+#define EXIF_FocalPlaneResolutionUnit 41488 //A210 SHORT
+#define EXIF_SubjectLocation 41492 //A214 SHORT
+#define EXIF_ExposureIndex 41493 //A215 RATIONAL
+#define EXIF_SensingMethod 41495 //A217 SHORT
+#define EXIF_FileSource 41728 //A300 UNDEFINED
+#define EXIF_SceneType 41729 //A301 UNDEFINED
+#define EXIF_CFAPattern 41730 //A302 UNDEFINED
+#define EXIF_CustomRendered 41985 //A401 SHORT
+#define EXIF_ExposureMode 41986 //A402 SHORT
+#define EXIF_WhiteBalance 41987 //A403 SHORT
+#define EXIF_DigitalZoomRatio 41988 //A404 RATIONAL
+#define EXIF_FocalLengthIn35mmFilm 41989 //A405 SHORT
+#define EXIF_SceneCaptureType 41990 //A406 SHORT
+#define EXIF_GainControl 41991 //A407 RATIONAL
+#define EXIF_Contrast 41992 //A408 SHORT
+#define EXIF_Saturation 41993 //A409 SHORT
+#define EXIF_Sharpness 41994 //A40A SHORT
+#define EXIF_DeviceSettingDescription 41995 //A40B UNDEFINED
+#define EXIF_SubjectDistanceRange 41996 //A40C SHORT
+
+TINYTIFFREADER_LIB_EXPORT bool TinyTIFFReaderEXIF(string &retval, TinyTIFFReaderFile *tiff, uint16_t tag);
+/*! \brief get the value of the EXIF tag from the currently opened file.  Value for the submitted tag must be of type string
+ 
+    \ingroup TinyTIFFReader
+
+    \param retval referece to where EXIF tag string is to be placed
+    \param tiff TIFF file
+    \param tag  EXIF tag
+    \return \c true if success false if tag not found or of wrong type
+*/
+TINYTIFFREADER_LIB_EXPORT bool TinyTIFFReaderEXIF(uint32_t &retval, TinyTIFFReaderFile *tiff, uint16_t tag);
+/*! \brief get the value of the EXIF tag from the currently opened file.  Value for the submitted tag must be of type unsigned int or undefined
+ 
+    \ingroup TinyTIFFReader
+
+    \param retval referece to where EXIF tag unsigned value is to be placed
+    \param tiff TIFF file
+    \param tag  EXIF tag
+    \return \c true if success false if tag not found or of wrong type
+*/
+TINYTIFFREADER_LIB_EXPORT bool TinyTIFFReaderEXIF(int32_t &retval, TinyTIFFReaderFile *tiff, uint16_t tag);
+/*! \brief get the value of the EXIF tag from the currently opened file.  Value for the submitted tag must be of type signed int
+ 
+    \ingroup TinyTIFFReader
+
+    \param retval referece to where EXIF tag signed value is to be placed
+    \param tiff TIFF file
+    \param tag  EXIF tag
+    \return \c true if success false if tag not found or of wrong type
+*/
+TINYTIFFREADER_LIB_EXPORT bool TinyTIFFReaderEXIF(double &retval, TinyTIFFReaderFile *tiff, uint16_t tag);
+/*! \brief get the value of the EXIF tag from the currently opened file.  Value for the submitted tag must be of type rational or srational
+ 
+    \ingroup TinyTIFFReader
+
+    \param retval referece to where EXIF tag signed value is to be placed
+    \param tiff TIFF file
+    \param tag  EXIF tag
+    \return \c true if success false if tag not found or of wrong type
+*/
+
 
 #endif // TINYTIFFREADER_H

@@ -18,7 +18,10 @@
 
 
 */
-
+/*
+   Further modifications by John Robinson starting December 2019  Thos changes are also
+   covered by the GNU General Public License.
+*/
 
 
 
@@ -148,7 +151,7 @@ TINYTIFFWRITER_LIB_EXPORT int TinyTIFFWriter_getMaxDescriptionTextSize();
     \return a new TinyTIFFFile pointer on success, or NULL on errors
 
   */
-TINYTIFFWRITER_LIB_EXPORT TinyTIFFFile* TinyTIFFWriter_open(const char* filename, uint16_t bitsPerSample, uint32_t width, uint32_t height);
+TINYTIFFWRITER_LIB_EXPORT TinyTIFFFile* TinyTIFFWriter_open(const char* filename, uint32_t samples, uint16_t bitsPerSample, uint32_t width, uint32_t height);
 
 /*! \brief write a new image to the give TIFF file
     \ingroup tinytiffwriter
