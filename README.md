@@ -1,4 +1,4 @@
-# TinyTIFF
+# TinyTIFF  RGB Version
 
 This is an RGB version of the original TinyTIFF code found at https://github.com/jkriege2/TinyTIFF.  Please see the readme file there for an indepth descritpion of the original code.
 
