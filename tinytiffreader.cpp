@@ -549,7 +549,7 @@ struct TinyTIFFReader_EXIF_IFD {
         
         (*tiff->currentFrame.EXIFdict)[tag] = this;
         if (changedpos) {
-            TinyTIFFReader_fseek_set(tiff, pos);
+            TinyTIFFReader_fsetpos(tiff, &pos);
             TinyTIFFReader_fseek_cur(tiff, 4);
         }
     }
@@ -834,7 +834,7 @@ inline void TinyTIFFReader_readNextFrame(TinyTIFFReaderFile* tiff) {
                         new TinyTIFFReader_EXIF_IFD(tiff, &ifd);
                     }
                     //cout << endl;
-                    TinyTIFFReader_fseek_set(tiff, pos);
+                    TinyTIFFReader_fsetpos(tiff, &pos);
                 } break;
                 default: break;
             }
